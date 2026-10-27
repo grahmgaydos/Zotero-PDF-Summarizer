@@ -1,25 +1,44 @@
 /* eslint-disable no-undef */
-// Runs inside the prefs pane's XHTML document. Has access to `Zotero` via
-// the global the prefs window provides.
-(function () {
-  const doc = document;
-  const testBtn = doc.getElementById("pas-test-btn");
-  const result = doc.getElementById("pas-test-result");
-  if (!testBtn) return;
+// External script for the prefs pane. Loaded via the `scripts` parameter
+// to PreferencePanes.register, which runs it in the pane's actual document
+// context (unlike inline <script> tags, which don't reliably execute).
 
-  testBtn.addEventListener("click", async () => {
-    result.textContent = "Testing…";
-    try {
-      // The plugin attaches its API to Zotero.PDFAutoSummariser at startup.
-      const api = Zotero.PDFAutoSummariser;
-      if (!api) {
-        result.textContent = "Plugin not loaded";
-        return;
+(function () {
+  function wireUp() {
+    const btn = document.getElementById("pas-test-btn");
+    const result = document.getElementById("pas-test-result");
+    if (!btn || btn.dataset.wired === "1") return;
+    btn.dataset.wired = "1";
+
+    btn.addEventListener("click", async () => {
+      result.textContent = "Testing…";
+      result.style.color = "";
+      try {
+        const api = Zotero.PDFAutoSummariser;
+        if (!api) {
+          result.style.color = "red";
+          result.textContent = "Plugin not loaded";
+          return;
+        }
+        const ok = await api.testConnection();
+        if (ok) {
+          result.style.color = "green";
+          result.textContent = "OK ✓";
+        } else {
+          result.style.color = "red";
+          result.textContent = "Failed (empty response)";
+        }
+      } catch (e) {
+        result.style.color = "red";
+        const msg = e && e.message ? e.message : String(e);
+        result.textContent = "Failed: " + msg;
       }
-      const ok = await api.testConnection();
-      result.textContent = ok ? "OK ✓" : "Failed";
-    } catch (e) {
-      result.textContent = `Failed: ${e.message || e}`;
-    }
-  });
+    });
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", wireUp, { once: true });
+  } else {
+    wireUp();
+  }
 })();

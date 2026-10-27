@@ -4,7 +4,6 @@
 // We bundle our TypeScript source into a single classic script at build time
 // and load it from this file via Services.scriptloader.
 
-var chromeHandle;
 var Summariser; // global hook into our bundled code
 
 function log(msg) {
@@ -16,26 +15,22 @@ async function install() {
 }
 
 async function startup({ id, version, rootURI }) {
-  log(`startup() id=${id} version=${version}`);
+  log(`startup() id=${id} version=${version} rootURI=${rootURI}`);
 
   // Wait for Zotero to be fully ready before doing anything.
   await Zotero.initializationPromise;
 
-  // Register chrome:// URI for our bundled assets (icons, prefs xhtml).
-  const aomStartup = Cc["@mozilla.org/addons/addon-manager-startup;1"].getService(
-    Ci.amIAddonManagerStartup
-  );
-  const manifestURI = Services.io.newURI(rootURI + "manifest.json");
-  chromeHandle = aomStartup.registerChrome(manifestURI, [
-    ["content", "pdf-auto-summariser", rootURI + "content/"],
-  ]);
-
-  // Load the bundled plugin code. It attaches a single object to the global
-  // scope of this bootstrap sandbox.
-  Services.scriptloader.loadSubScript(rootURI + "content/index.js", this);
+  // Load the bundled plugin code. It attaches Summariser to the bootstrap
+  // sandbox's global scope.
+  try {
+    Services.scriptloader.loadSubScript(rootURI + "content/index.js", this);
+  } catch (e) {
+    log(`ERROR loading content/index.js: ${e}\n${e.stack || ""}`);
+    return;
+  }
 
   if (typeof Summariser === "undefined") {
-    log("ERROR: Summariser bundle did not load");
+    log("ERROR: Summariser bundle did not attach to global scope");
     return;
   }
 
@@ -54,10 +49,6 @@ async function shutdown() {
     }
   } catch (e) {
     log(`shutdown error: ${e}`);
-  }
-  if (chromeHandle) {
-    chromeHandle.destruct();
-    chromeHandle = null;
   }
 }
 

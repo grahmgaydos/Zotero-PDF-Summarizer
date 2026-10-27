@@ -1,47 +1,61 @@
-<?xml version="1.0"?>
-<vbox xmlns="http://www.w3.org/1999/xhtml"
-      xmlns:html="http://www.w3.org/1999/xhtml"
-      id="zotero-prefpane-pdf-auto-summariser"
-      data-l10n-id="pas-prefs-title">
+<vbox xmlns="http://www.w3.org/1999/xul"
+      xmlns:html="http://www.w3.org/1999/xhtml">
+
+  <html:style>
+    .pas-prefs { padding: 10px; }
+    .pas-prefs fieldset { margin-bottom: 12px; padding: 8px; }
+    .pas-prefs legend { font-weight: 600; }
+    .pas-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+    .pas-row label { min-width: 220px; }
+    .pas-note { color: #666; font-size: 11px; margin: 2px 0 8px 228px; }
+    .pas-prefs input[type="text"],
+    .pas-prefs input[type="password"] { flex: 1; min-width: 320px; }
+    .pas-prefs textarea { width: 100%; font-family: monospace; font-size: 12px; }
+    #pas-test-result { margin-left: 8px; }
+  </html:style>
 
   <html:div class="pas-prefs">
 
     <html:fieldset>
-      <html:legend data-l10n-id="pas-prefs-backend-label"/>
+      <html:legend>Backend</html:legend>
 
       <html:div class="pas-row">
-        <html:label data-l10n-id="pas-prefs-backend-label" for="pas-backend"/>
+        <html:label for="pas-backend">Backend</html:label>
         <html:select id="pas-backend"
-                     data-preference="extensions.pdf-auto-summariser.backend">
-          <html:option value="ollama" data-l10n-id="pas-prefs-backend-ollama"/>
-          <html:option value="lmstudio" data-l10n-id="pas-prefs-backend-lmstudio"/>
-          <html:option value="openai" data-l10n-id="pas-prefs-backend-openai"/>
-          <html:option value="anthropic" data-l10n-id="pas-prefs-backend-anthropic"/>
+                     preference="extensions.pdf-auto-summariser.backend">
+          <html:option value="ollama">Ollama (local)</html:option>
+          <html:option value="lmstudio">LM Studio (local)</html:option>
+          <html:option value="openai">OpenAI / OpenRouter</html:option>
+          <html:option value="anthropic">Anthropic</html:option>
         </html:select>
       </html:div>
 
       <html:div class="pas-row">
-        <html:label data-l10n-id="pas-prefs-endpoint-label" for="pas-endpoint"/>
-        <html:input type="text" id="pas-endpoint" size="60"
-                    data-preference="extensions.pdf-auto-summariser.endpoint"/>
+        <html:label for="pas-endpoint">Endpoint URL</html:label>
+        <html:input type="text" id="pas-endpoint"
+                    preference="extensions.pdf-auto-summariser.endpoint"/>
       </html:div>
 
       <html:div class="pas-row">
-        <html:label data-l10n-id="pas-prefs-model-label" for="pas-model"/>
-        <html:input type="text" id="pas-model" size="40"
-                    data-preference="extensions.pdf-auto-summariser.model"/>
+        <html:label for="pas-model">Model</html:label>
+        <html:input type="text" id="pas-model"
+                    preference="extensions.pdf-auto-summariser.model"/>
       </html:div>
 
       <html:div class="pas-row">
-        <html:label data-l10n-id="pas-prefs-apikey-label" for="pas-apikey"/>
-        <html:input type="password" id="pas-apikey" size="60"
-                    data-preference="extensions.pdf-auto-summariser.apiKey"/>
+        <html:label for="pas-apikey">API key (blank for local)</html:label>
+        <html:input type="password" id="pas-apikey"
+                    preference="extensions.pdf-auto-summariser.apiKey"/>
       </html:div>
-      <html:p class="pas-note" data-l10n-id="pas-prefs-apikey-note"/>
+      <html:p class="pas-note">
+        Stored in plain text in your Zotero profile. Only set this for cloud backends.
+      </html:p>
 
       <html:div class="pas-row">
-        <html:button id="pas-test-btn" data-l10n-id="pas-prefs-test-button"/>
-        <html:span id="pas-test-result" class="pas-note"/>
+        <html:label>&#160;</html:label>
+        <html:button id="pas-test-btn" type="button"
+                     onclick="Zotero.PDFAutoSummariser.handleTestClick(document)">Test connection</html:button>
+        <html:span id="pas-test-result"></html:span>
       </html:div>
     </html:fieldset>
 
@@ -49,35 +63,34 @@
       <html:legend>Behaviour</html:legend>
 
       <html:div class="pas-row">
+        <html:label for="pas-autoonadd">Auto-summarise new PDFs</html:label>
         <html:input type="checkbox" id="pas-autoonadd"
-                    data-preference="extensions.pdf-auto-summariser.autoOnAdd"/>
-        <html:label for="pas-autoonadd" data-l10n-id="pas-prefs-autoonadd-label"/>
+                    preference="extensions.pdf-auto-summariser.autoOnAdd"/>
       </html:div>
 
       <html:div class="pas-row">
-        <html:label data-l10n-id="pas-prefs-onexisting-label" for="pas-onexisting"/>
+        <html:label for="pas-onexisting">When abstract already exists</html:label>
         <html:select id="pas-onexisting"
-                     data-preference="extensions.pdf-auto-summariser.onExistingAbstract">
-          <html:option value="skip" data-l10n-id="pas-prefs-onexisting-skip"/>
-          <html:option value="ask" data-l10n-id="pas-prefs-onexisting-ask"/>
-          <html:option value="overwrite" data-l10n-id="pas-prefs-onexisting-overwrite"/>
+                     preference="extensions.pdf-auto-summariser.onExistingAbstract">
+          <html:option value="skip">Skip (never overwrite)</html:option>
+          <html:option value="ask">Ask via dialog</html:option>
+          <html:option value="overwrite">Always overwrite</html:option>
         </html:select>
       </html:div>
 
       <html:div class="pas-row">
-        <html:label data-l10n-id="pas-prefs-maxchars-label" for="pas-maxchars"/>
+        <html:label for="pas-maxchars">Max characters of PDF text to send</html:label>
         <html:input type="number" id="pas-maxchars" min="2000" max="200000" step="1000"
-                    data-preference="extensions.pdf-auto-summariser.maxChars"/>
+                    preference="extensions.pdf-auto-summariser.maxChars"/>
       </html:div>
     </html:fieldset>
 
     <html:fieldset>
-      <html:legend data-l10n-id="pas-prefs-prompt-label"/>
-      <html:textarea id="pas-prompt" rows="8" cols="80"
-                     data-preference="extensions.pdf-auto-summariser.prompt"/>
+      <html:legend>Summary prompt</html:legend>
+      <html:textarea id="pas-prompt" rows="8"
+                     preference="extensions.pdf-auto-summariser.prompt"/>
     </html:fieldset>
 
   </html:div>
 
-  <html:script src="chrome://pdf-auto-summariser/content/prefs-page.js"/>
 </vbox>

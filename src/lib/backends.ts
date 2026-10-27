@@ -35,9 +35,18 @@ async function callOpenAICompatible(
   input: SummariseInput,
   signal?: AbortSignal
 ): Promise<string> {
+  // The user message structure matters more than people expect on smaller
+  // models. Delimiters like "--- BEGIN PAPER TEXT ---" can cue the model to
+  // treat the input as a draft for review rather than source material to
+  // summarise. We avoid framing markers and put the explicit task last so
+  // it's the most salient instruction the model sees.
   const userContent =
-    `Title: ${input.itemTitle ?? "(unknown)"}\n\n` +
-    `--- BEGIN PAPER TEXT ---\n${input.documentText}\n--- END PAPER TEXT ---`;
+    `Below is the full text of an academic paper titled "${input.itemTitle ?? "(unknown)"}". ` +
+    `Read it, then write the abstract.\n\n` +
+    `${input.documentText}\n\n` +
+    `Now write the abstract for the paper above. Output only the abstract — ` +
+    `do not introduce it, evaluate it, comment on it, ask follow-up questions, ` +
+    `or add any text before or after it.`;
 
   const body: any = {
     model: prefs.model,
@@ -45,7 +54,8 @@ async function callOpenAICompatible(
       { role: "system", content: input.systemPrompt },
       { role: "user", content: userContent },
     ],
-    temperature: 0.3,
+    temperature: 0.2,
+    max_tokens: 400,
     stream: false,
   };
 
@@ -86,8 +96,12 @@ async function callAnthropic(
   }
 
   const userContent =
-    `Title: ${input.itemTitle ?? "(unknown)"}\n\n` +
-    `--- BEGIN PAPER TEXT ---\n${input.documentText}\n--- END PAPER TEXT ---`;
+    `Below is the full text of an academic paper titled "${input.itemTitle ?? "(unknown)"}". ` +
+    `Read it, then write the abstract.\n\n` +
+    `${input.documentText}\n\n` +
+    `Now write the abstract for the paper above. Output only the abstract — ` +
+    `do not introduce it, evaluate it, comment on it, ask follow-up questions, ` +
+    `or add any text before or after it.`;
 
   // Default endpoint if user left the OpenAI-shaped default in place.
   const url = prefs.endpoint.includes("api.anthropic.com")
@@ -96,7 +110,7 @@ async function callAnthropic(
 
   const body = {
     model: prefs.model,
-    max_tokens: 1024,
+    max_tokens: 400,
     system: input.systemPrompt,
     messages: [{ role: "user", content: userContent }],
   };

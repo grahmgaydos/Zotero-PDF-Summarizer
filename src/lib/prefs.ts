@@ -37,7 +37,7 @@ export function getPrefs(): Prefs {
     autoOnAdd: Boolean(get("autoOnAdd", true)),
     onExistingAbstract: (get("onExistingAbstract", "ask") as OnExisting),
     concurrency: Number(get("concurrency", 1)),
-    indexWaitSeconds: Number(get("indexWaitSeconds", 8)),
+    indexWaitSeconds: Number(get("indexWaitSeconds", 15)),
     prompt: get(
       "prompt",
       "Summarise this academic paper in 3-4 sentences. Output the summary only."

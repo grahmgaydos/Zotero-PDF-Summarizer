@@ -1,6 +1,6 @@
 {
   "name": "zotero-pdf-summarizer",
-  "version": "0.1.0",
+  "version": "0.1.7",
   "description": "Zotero 7 plugin that auto-summarises newly added PDFs into the abstract field using local (Ollama/LM Studio) or cloud (Anthropic/OpenAI) models.",
   "private": true,
   "type": "module",
