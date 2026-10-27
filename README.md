@@ -44,6 +44,8 @@ ollama pull llama3.1:8b    # in another
 
 The plugin will then work without any configuration changes. Click **Test connection** in the prefs pane to verify.
 
+You don't need to raise Ollama's context length. The plugin talks to Ollama's native `/api/chat` endpoint and sizes the context window (`num_ctx`) to each request: 4k for small requests, 16k for a default 24,000-character extract, capped at 32k. Ollama's default 4k window would otherwise silently cut off the start of the paper. If you point the endpoint at a proxy with a custom path, the plugin falls back to the OpenAI-compatible request and can't set the context.
+
 ### Switching to LM Studio
 
 In the prefs pane:
@@ -118,7 +120,7 @@ src/
 ├─ types.d.ts             # ambient Zotero declarations
 └─ lib/
    ├─ prefs.ts            # typed accessor over Zotero.Prefs
-   ├─ backends.ts         # OpenAI-compatible + Anthropic Messages
+   ├─ backends.ts         # Ollama native, OpenAI-compatible, Anthropic Messages
    ├─ pdf.ts              # PDF text extraction via Zotero.Fulltext
    ├─ queue.ts            # concurrency limiter (bulk-import safety)
    ├─ analysis.ts         # structured JSON analysis (summary, findings, topics)
@@ -134,7 +136,7 @@ Zotero 7 is built on Firefox 115 but plugins use Mozilla's older bootstrapped (n
 
 ### Backend abstraction
 
-Ollama, LM Studio, OpenAI, and OpenRouter all speak the OpenAI Chat Completions schema, so one code path handles them. Only the endpoint, model name, and API key differ. Anthropic uses its own Messages API (system prompt as a top-level field, `max_tokens` required, `content` as a block array) and gets its own function.
+LM Studio, OpenAI, and OpenRouter all speak the OpenAI Chat Completions schema, so one code path handles them. Only the endpoint, model name, and API key differ. Ollama speaks it too, but its OpenAI-compatible endpoint ignores the context-window option, so Ollama gets its own path through the native `/api/chat` API, with the endpoint pref's `/v1/chat/completions` mapped to `/api/chat`. Anthropic uses its own Messages API (system prompt as a top-level field, `max_tokens` required, `content` as a block array) and gets its own function.
 
 ### Full-text source
 
