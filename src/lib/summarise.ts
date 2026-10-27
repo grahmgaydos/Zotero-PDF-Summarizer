@@ -1,11 +1,13 @@
 // Core summarisation flow. Decides whether to run on a given item, pulls
-// text, calls the backend, and writes the result back to abstractNote.
+// text, calls the backend, writes the summary back to abstractNote, and
+// (optionally) writes a source page to the research-wiki vault.
 
-import { callBackend } from "./backends";
+import { analysePaper } from "./analysis";
 import { getPdfText } from "./pdf";
 import type { Prefs } from "./prefs";
 import { getPrefs } from "./prefs";
 import { Queue } from "./queue";
+import { readTagVocabulary, writeSourceNote } from "./vault";
 
 const queue = new Queue(1);
 
@@ -20,6 +22,16 @@ export interface SummariseOptions {
   force?: boolean;
   /** Skip the toast; just overwrite if needed. */
   silent?: boolean;
+  /**
+   * "wiki": the right-click "Add to research wiki" path. Always writes the
+   * vault page, and only fills the abstract when it is empty.
+   */
+  mode?: "summarise" | "wiki";
+}
+
+interface Targets {
+  abstract: boolean;
+  vault: boolean;
 }
 
 export async function summariseAttachment(
@@ -36,16 +48,24 @@ export async function summariseAttachment(
   }
 
   const existing = (parentItem.getField("abstractNote") || "").trim();
-  const decision = decide(prefs, existing, opts);
+  const targets: Targets = {
+    abstract: false,
+    vault: opts.mode === "wiki" || prefs.vaultEnabled,
+  };
 
-  if (decision === "skip") return;
-
-  if (decision === "ask") {
-    const replace = await confirmReplace(parentItem.getField("title"));
-    if (!replace) return;
+  if (opts.mode === "wiki") {
+    targets.abstract = !existing;
+  } else {
+    const decision = decide(prefs, existing, opts);
+    if (decision === "proceed") targets.abstract = true;
+    if (decision === "ask") {
+      targets.abstract = await confirmReplace(parentItem.getField("title"));
+    }
   }
 
-  await queue.run(() => runSummarise(attachmentItem, parentItem, prefs));
+  if (!targets.abstract && !targets.vault) return;
+
+  await queue.run(() => runSummarise(attachmentItem, parentItem, prefs, targets));
 }
 
 function decide(prefs: Prefs, existing: string, opts: SummariseOptions): Decision {
@@ -69,10 +89,11 @@ function decide(prefs: Prefs, existing: string, opts: SummariseOptions): Decisio
 async function runSummarise(
   attachmentItem: any,
   parentItem: any,
-  prefs: Prefs
+  prefs: Prefs,
+  targets: Targets
 ): Promise<void> {
   const title = parentItem.getField("title") || "(untitled)";
-  log(`Summarising: ${title}`);
+  log(`Summarising: ${title} (abstract=${targets.abstract}, vault=${targets.vault})`);
 
   const progress = showProgress(`Summarising "${truncate(title, 60)}"…`);
 
@@ -83,16 +104,25 @@ async function runSummarise(
       prefs.indexWaitSeconds
     );
 
-    const summary = await callBackend(prefs, {
-      systemPrompt: prefs.prompt,
-      documentText: text,
-      itemTitle: title,
-    });
+    const vocabulary = targets.vault ? await readTagVocabulary(prefs) : [];
+    const analysis = await analysePaper(prefs, text, title, vocabulary);
+    if (!analysis.structured) {
+      log(`Model did not return JSON for "${title}"; using raw text as summary`);
+    }
 
-    parentItem.setField("abstractNote", summary);
-    await parentItem.saveTx();
+    const written: string[] = [];
+    if (targets.abstract) {
+      parentItem.setField("abstractNote", analysis.summary);
+      await parentItem.saveTx();
+      written.push("abstract");
+    }
+    if (targets.vault) {
+      const res = await writeSourceNote(prefs, parentItem, attachmentItem, analysis);
+      log(`${res.created ? "Created" : "Updated"} vault page ${res.path}`);
+      written.push(res.created ? "wiki page" : "wiki page (updated)");
+    }
 
-    progress.done(`Summary written to "${truncate(title, 60)}"`);
+    progress.done(`${capitalise(written.join(" + "))} written for "${truncate(title, 60)}"`);
     log(`Done: ${title}`);
   } catch (e: any) {
     const msg = e?.message || String(e);
@@ -100,6 +130,10 @@ async function runSummarise(
     progress.fail(`Summary failed: ${msg}`);
     throw e;
   }
+}
+
+function capitalise(s: string): string {
+  return s ? s[0].toUpperCase() + s.slice(1) : s;
 }
 
 async function getParentItem(attachmentItem: any): Promise<any | null> {

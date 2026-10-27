@@ -12,6 +12,19 @@ When a PDF attachment is added under a regular item (book, journal article, repo
 
 If the abstract is already populated (e.g. Crossref supplied one on import), the plugin asks before overwriting by default. Configurable to skip or always overwrite. A right-click "Summarise with AI" item-menu entry lets you re-run on demand against any item with a PDF attachment.
 
+## Research wiki (Obsidian) export
+
+Optionally, the plugin also writes a source page for each paper into an Obsidian vault, for an LLM-maintained research wiki. The model call returns structured JSON (summary, key findings, method, limitations, suggested topics). The summary goes to the `Abstract` field as before, and everything goes into `<vault>/sources/<citekey>.md` with frontmatter pulled from Zotero (authors, year, venue, DOI, tags, collections, `zotero://` links). The plugin also appends an entry to the vault's `log.md`.
+
+- **Enable**: Settings → PDF Auto-Summariser → *Research wiki (Obsidian)*. Set the vault folder (e.g. `~/Documents/research-wiki`).
+- **Backfill**: select items → right-click → **Add to research wiki**. This writes the page and only fills the abstract if it's empty.
+- **Auto-tags**: each new page gets 2-3 tags in its `tags` frontmatter. The model is shown every tag already used in the vault's `sources/` and told to reuse them, so the vocabulary stays consistent and you steer it by editing tags in the vault. Re-runs only fill `tags` if it is empty.
+- **Re-runs are safe**: pages are matched by Zotero item key, so renames are fine. Only the bibliographic frontmatter and the text between the `zotero-summariser` markers are regenerated. `status`, `topics`, `projects`, the *Connections* section and *My notes* are preserved.
+- **Filenames** use the Better BibTeX citekey when installed, otherwise `surname-year-title-words`.
+- If a small local model ignores the JSON format, the plugin falls back to using the whole reply as the summary.
+
+The vault's own `CLAUDE.md` defines the page schema and the workflow an agent follows to work new sources into topic pages.
+
 ## Install (end users)
 
 1. Download the latest `pdf-auto-summariser-<version>.xpi` from the [releases page](https://github.com/grahmgaydos/Zotero-PDF-Summarizer/releases).
@@ -67,7 +80,7 @@ npm run package      # produces dist/pdf-auto-summariser-<version>.xpi
 
 ### Hot reload during development
 
-The fastest dev loop is to point Zotero at the unpacked `addon/` directory:
+The fastest dev loop is to point Zotero at the unpacked `addon/` directory: (`scripts/dev-link.sh link` does steps 2–3 for you, backing up any installed `.xpi`; `scripts/dev-link.sh unlink` restores it):
 
 1. Find your Zotero profile directory (Help → Troubleshooting Information → Profile Directory in Zotero).
 2. In that directory, find `extensions/` (create it if absent).
@@ -99,9 +112,11 @@ src/
    ├─ backends.ts         # OpenAI-compatible + Anthropic Messages
    ├─ pdf.ts              # PDF text extraction via Zotero.Fulltext
    ├─ queue.ts            # concurrency limiter (bulk-import safety)
+   ├─ analysis.ts         # structured JSON analysis (summary, findings, topics)
    ├─ summarise.ts        # orchestrates extraction → model → write-back
+   ├─ vault.ts            # Obsidian research-wiki source pages + log.md
    ├─ notifier.ts         # Zotero.Notifier observer on attachment adds
-   └─ menu.ts             # right-click "Summarise with AI"
+   └─ menu.ts             # right-click "Summarise with AI" / "Add to research wiki"
 ```
 
 ### Why bootstrapped, not WebExtension?

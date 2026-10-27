@@ -86,6 +86,31 @@
     </html:fieldset>
 
     <html:fieldset>
+      <html:legend>Research wiki (Obsidian)</html:legend>
+
+      <html:div class="pas-row">
+        <html:label for="pas-vaultenabled">Write a vault page for every summarised paper</html:label>
+        <html:input type="checkbox" id="pas-vaultenabled"
+                    preference="extensions.pdf-auto-summariser.vaultEnabled"/>
+      </html:div>
+
+      <html:div class="pas-row">
+        <html:label for="pas-vaultpath">Vault folder</html:label>
+        <html:input type="text" id="pas-vaultpath" placeholder="~/Documents/research-wiki"
+                    preference="extensions.pdf-auto-summariser.vaultPath"/>
+      </html:div>
+
+      <html:div class="pas-row">
+        <html:label for="pas-vaultfolder">Sources subfolder</html:label>
+        <html:input type="text" id="pas-vaultfolder"
+                    preference="extensions.pdf-auto-summariser.vaultSourcesFolder"/>
+      </html:div>
+      <html:p class="pas-note">
+        Pages are named by Better BibTeX citekey when available. Re-runs update the generated section and keep your notes. Right-click → Add to research wiki works even when this is off.
+      </html:p>
+    </html:fieldset>
+
+    <html:fieldset>
       <html:legend>Summary prompt</html:legend>
       <html:textarea id="pas-prompt" rows="8"
                      preference="extensions.pdf-auto-summariser.prompt"/>

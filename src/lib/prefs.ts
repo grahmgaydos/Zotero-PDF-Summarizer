@@ -16,6 +16,9 @@ export interface Prefs {
   concurrency: number;
   indexWaitSeconds: number;
   prompt: string;
+  vaultEnabled: boolean;
+  vaultPath: string;
+  vaultSourcesFolder: string;
 }
 
 export function getPrefs(): Prefs {
@@ -42,6 +45,9 @@ export function getPrefs(): Prefs {
       "prompt",
       "Summarise this academic paper in 3-4 sentences. Output the summary only."
     ),
+    vaultEnabled: Boolean(get("vaultEnabled", false)),
+    vaultPath: get("vaultPath", ""),
+    vaultSourcesFolder: get("vaultSourcesFolder", "sources"),
   };
 }
 

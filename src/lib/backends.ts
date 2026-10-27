@@ -7,6 +7,32 @@ export interface SummariseInput {
   systemPrompt: string;
   documentText: string;
   itemTitle?: string;
+  /**
+   * The closing instruction placed after the paper text. Defaults to the
+   * plain-abstract task; structured analysis passes its own.
+   */
+  task?: string;
+  /** Upper bound on response length. Structured analysis needs more room than a bare abstract. */
+  maxTokens?: number;
+}
+
+const ABSTRACT_TASK =
+  `Now write the abstract for the paper above. Output only the abstract — ` +
+  `do not introduce it, evaluate it, comment on it, ask follow-up questions, ` +
+  `or add any text before or after it.`;
+
+// The user message structure matters more than people expect on smaller
+// models. Delimiters like "--- BEGIN PAPER TEXT ---" can cue the model to
+// treat the input as a draft for review rather than source material to
+// summarise. We avoid framing markers and put the explicit task last so
+// it's the most salient instruction the model sees.
+function userContent(input: SummariseInput): string {
+  return (
+    `Below is the full text of an academic paper titled "${input.itemTitle ?? "(unknown)"}". ` +
+    (input.task ? `Read it, then do the task that follows.\n\n` : `Read it, then write the abstract.\n\n`) +
+    `${input.documentText}\n\n` +
+    (input.task ?? ABSTRACT_TASK)
+  );
 }
 
 export async function callBackend(
@@ -35,27 +61,14 @@ async function callOpenAICompatible(
   input: SummariseInput,
   signal?: AbortSignal
 ): Promise<string> {
-  // The user message structure matters more than people expect on smaller
-  // models. Delimiters like "--- BEGIN PAPER TEXT ---" can cue the model to
-  // treat the input as a draft for review rather than source material to
-  // summarise. We avoid framing markers and put the explicit task last so
-  // it's the most salient instruction the model sees.
-  const userContent =
-    `Below is the full text of an academic paper titled "${input.itemTitle ?? "(unknown)"}". ` +
-    `Read it, then write the abstract.\n\n` +
-    `${input.documentText}\n\n` +
-    `Now write the abstract for the paper above. Output only the abstract — ` +
-    `do not introduce it, evaluate it, comment on it, ask follow-up questions, ` +
-    `or add any text before or after it.`;
-
   const body: any = {
     model: prefs.model,
     messages: [
       { role: "system", content: input.systemPrompt },
-      { role: "user", content: userContent },
+      { role: "user", content: userContent(input) },
     ],
     temperature: 0.2,
-    max_tokens: 400,
+    max_tokens: input.maxTokens ?? 400,
     stream: false,
   };
 
@@ -95,14 +108,6 @@ async function callAnthropic(
     throw new Error("Anthropic backend requires an API key");
   }
 
-  const userContent =
-    `Below is the full text of an academic paper titled "${input.itemTitle ?? "(unknown)"}". ` +
-    `Read it, then write the abstract.\n\n` +
-    `${input.documentText}\n\n` +
-    `Now write the abstract for the paper above. Output only the abstract — ` +
-    `do not introduce it, evaluate it, comment on it, ask follow-up questions, ` +
-    `or add any text before or after it.`;
-
   // Default endpoint if user left the OpenAI-shaped default in place.
   const url = prefs.endpoint.includes("api.anthropic.com")
     ? prefs.endpoint
@@ -110,9 +115,9 @@ async function callAnthropic(
 
   const body = {
     model: prefs.model,
-    max_tokens: 400,
+    max_tokens: input.maxTokens ?? 400,
     system: input.systemPrompt,
-    messages: [{ role: "user", content: userContent }],
+    messages: [{ role: "user", content: userContent(input) }],
   };
 
   const res = await fetch(url, {

@@ -7,6 +7,8 @@ declare const Cc: any;
 declare const Ci: any;
 declare const Services: any;
 declare const ChromeUtils: any;
+declare const IOUtils: any;
+declare const PathUtils: any;
 
 // Bootstrap context (passed to startup/shutdown)
 declare interface BootstrapData {

@@ -1,17 +1,28 @@
-// Right-click "Summarise with AI" menu on items in the library pane.
-// Uses Zotero.ItemTreeManager (Zotero 7) to inject a context-menu entry.
+// Right-click item-menu entries: "Summarise with AI" and "Add to research wiki".
+// Both run against the selected items' PDF attachments.
 
+import type { SummariseOptions } from "./summarise";
 import { summariseAttachment } from "./summarise";
 
-let menuItemID: string | null = null;
+let registered = false;
 
-const MENU_ID = "pdf-auto-summariser-context-menu";
+const MENU_ITEMS: { id: string; label: string; opts: SummariseOptions }[] = [
+  {
+    id: "pdf-auto-summariser-context-menu",
+    label: "Summarise with AI",
+    // Manual invocation: force-run with silent overwrite intent.
+    opts: { force: true },
+  },
+  {
+    id: "pdf-auto-summariser-wiki-menu",
+    label: "Add to research wiki",
+    opts: { mode: "wiki" },
+  },
+];
 
 export async function registerMenu(): Promise<void> {
-  if (menuItemID) return;
+  if (registered) return;
   try {
-    // Zotero 7's ItemTreeManager / Menu API. We add a single menuitem to the
-    // item context menu that runs against the selected items.
     const win = Zotero.getMainWindow();
     if (!win) {
       log("No main window yet; deferring menu registration");
@@ -25,57 +36,58 @@ export async function registerMenu(): Promise<void> {
       return;
     }
 
-    // Remove any stale entry from a previous startup.
-    const stale = doc.getElementById(MENU_ID);
-    if (stale) stale.remove();
+    for (const { id, label, opts } of MENU_ITEMS) {
+      // Remove any stale entry from a previous startup.
+      doc.getElementById(id)?.remove();
 
-    const menuitem = doc.createXULElement("menuitem");
-    menuitem.setAttribute("id", MENU_ID);
-    menuitem.setAttribute("label", "Summarise with AI");
-    menuitem.addEventListener("command", async () => {
-      const items = Zotero.getActiveZoteroPane().getSelectedItems();
-      for (const item of items) {
-        // If it's a regular item, find its best PDF attachment.
-        // If it's an attachment, use it directly.
-        let attachment = null;
-        if (item.isAttachment() && item.attachmentContentType === "application/pdf") {
-          attachment = item;
-        } else if (item.isRegularItem()) {
-          const attIDs = item.getAttachments();
-          for (const aid of attIDs) {
-            const att = await Zotero.Items.getAsync(aid);
-            if (att.attachmentContentType === "application/pdf") {
-              attachment = att;
-              break;
-            }
-          }
-        }
-        if (!attachment) {
-          log(`No PDF attachment for item ${item.id}; skipping`);
-          continue;
-        }
-        // Manual invocation: force-run with silent overwrite intent.
-        summariseAttachment(attachment, { force: true }).catch((e) => {
-          log(`Manual summarise failed: ${e?.message || e}`);
-        });
-      }
-    });
+      const menuitem = doc.createXULElement("menuitem");
+      menuitem.setAttribute("id", id);
+      menuitem.setAttribute("label", label);
+      menuitem.addEventListener("command", () => runOnSelection(opts));
+      popup.appendChild(menuitem);
+    }
 
-    popup.appendChild(menuitem);
-    menuItemID = MENU_ID;
+    registered = true;
     log("Context menu registered");
   } catch (e: any) {
     log(`registerMenu error: ${e?.message || e}`);
   }
 }
 
+async function runOnSelection(opts: SummariseOptions): Promise<void> {
+  const items = Zotero.getActiveZoteroPane().getSelectedItems();
+  for (const item of items) {
+    const attachment = await findPdf(item);
+    if (!attachment) {
+      log(`No PDF attachment for item ${item.id}; skipping`);
+      continue;
+    }
+    summariseAttachment(attachment, opts).catch((e) => {
+      log(`Manual run failed: ${e?.message || e}`);
+    });
+  }
+}
+
+// If it's an attachment, use it directly; if it's a regular item, take its
+// first PDF attachment.
+async function findPdf(item: any): Promise<any | null> {
+  if (item.isAttachment() && item.attachmentContentType === "application/pdf") {
+    return item;
+  }
+  if (!item.isRegularItem()) return null;
+  for (const aid of item.getAttachments()) {
+    const att = await Zotero.Items.getAsync(aid);
+    if (att.attachmentContentType === "application/pdf") return att;
+  }
+  return null;
+}
+
 export function unregisterMenu(): void {
   try {
     const win = Zotero.getMainWindow();
     if (!win) return;
-    const el = win.document.getElementById(MENU_ID);
-    if (el) el.remove();
-    menuItemID = null;
+    for (const { id } of MENU_ITEMS) win.document.getElementById(id)?.remove();
+    registered = false;
   } catch (e: any) {
     log(`unregisterMenu error: ${e?.message || e}`);
   }
