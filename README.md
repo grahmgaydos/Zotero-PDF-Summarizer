@@ -90,6 +90,15 @@ The fastest dev loop is to point Zotero at the unpacked `addon/` directory: (`sc
 
 Logs go to **Help → Debug Output Logging**; filter for `[PDF Auto-Summariser]`.
 
+## Releasing an update
+
+Installed copies check `update.json` on `main` (the `update_url` in `addon/manifest.json`) and install any newer version listed there. Pushing code alone doesn't update anyone.
+
+1. Bump `version` in both `package.json` and `addon/manifest.json`.
+2. `npm run package`. This builds `dist/pdf-auto-summariser-<version>.xpi` and adds the version to `update.json`, with the file's SHA-256 hash.
+3. On GitHub, publish a release tagged `v<version>` and attach **that exact** `.xpi`. Rebuilding changes the hash.
+4. Commit and push `update.json` (plus the version bumps). Push only after the release is live, because `update.json` links to the release's file.
+
 ## How it works (architecture)
 
 ```
