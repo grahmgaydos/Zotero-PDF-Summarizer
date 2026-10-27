@@ -18,7 +18,7 @@ Optionally, the plugin also writes a source page for each paper into an Obsidian
 
 - **Enable**: Settings → PDF Auto-Summariser → *Research wiki (Obsidian)*. Set the vault folder (e.g. `~/Documents/research-wiki`).
 - **Backfill**: select items → right-click → **Add to research wiki**. This writes the page and only fills the abstract if it's empty.
-- **Auto-tags**: each new page gets 2-3 tags in its `tags` frontmatter. The model is shown every tag already used in the vault's `sources/` and told to reuse them, so the vocabulary stays consistent and you steer it by editing tags in the vault. Re-runs only fill `tags` if it is empty.
+- **Auto-tags**: each new page gets 2-3 tags in its `tags` frontmatter. A second, short model call works from the summary (not the paper), sees every tag already used in the vault's `sources/`, and reuses one only when the paper is substantially about it, giving a reason before each tag. So the vocabulary stays consistent, and you steer it by editing tags in the vault. Re-runs only fill `tags` if it is empty. The extra call adds about 20 seconds per paper on a 12B local model.
 - **Re-runs are safe**: pages are matched by Zotero item key, so renames are fine. Only the bibliographic frontmatter and the text between the `zotero-summariser` markers are regenerated. `status`, `topics`, `projects`, the *Connections* section and *My notes* are preserved.
 - **Filenames** use the Better BibTeX citekey when installed, otherwise `surname-year-title-words`.
 - If a small local model ignores the JSON format, the plugin falls back to using the whole reply as the summary.

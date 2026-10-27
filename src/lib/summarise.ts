@@ -104,7 +104,7 @@ async function runSummarise(
       prefs.indexWaitSeconds
     );
 
-    const vocabulary = targets.vault ? await readTagVocabulary(prefs) : [];
+    const vocabulary = targets.vault ? await readTagVocabulary(prefs) : null;
     const analysis = await analysePaper(prefs, text, title, vocabulary);
     if (!analysis.structured) {
       log(`Model did not return JSON for "${title}"; using raw text as summary`);

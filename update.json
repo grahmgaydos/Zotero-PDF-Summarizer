@@ -5,7 +5,7 @@
         {
           "version": "1.0.0",
           "update_link": "https://github.com/grahmgaydos/Zotero-PDF-Summarizer/releases/download/v1.0.0/pdf-auto-summariser-1.0.0.xpi",
-          "update_hash": "sha256:eb6af868dcf3ab0bdfc6c41a9011b8c7650b363c4935e58f95240788776ce350",
+          "update_hash": "sha256:82e58528976b8214c112a9719d729f20bbac3e5b95a84c3ec9dda5228ecf7ca8",
           "applications": {
             "zotero": {
               "strict_min_version": "6.999",

@@ -14,6 +14,11 @@ export interface SummariseInput {
   task?: string;
   /** Upper bound on response length. Structured analysis needs more room than a bare abstract. */
   maxTokens?: number;
+  /**
+   * Replaces the whole paper-framed user message. For follow-up calls that
+   * work from the summary rather than the paper text (e.g. tagging).
+   */
+  userMessage?: string;
 }
 
 const ABSTRACT_TASK =
@@ -27,6 +32,7 @@ const ABSTRACT_TASK =
 // summarise. We avoid framing markers and put the explicit task last so
 // it's the most salient instruction the model sees.
 function userContent(input: SummariseInput): string {
+  if (input.userMessage !== undefined) return input.userMessage;
   return (
     `Below is the full text of an academic paper titled "${input.itemTitle ?? "(unknown)"}". ` +
     (input.task ? `Read it, then do the task that follows.\n\n` : `Read it, then write the abstract.\n\n`) +

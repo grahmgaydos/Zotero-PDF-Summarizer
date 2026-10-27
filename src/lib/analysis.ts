@@ -1,6 +1,7 @@
-// Structured analysis of a paper. One model call returns the abstract-style
-// summary plus the extra fields the research-wiki note needs. The user's
-// prompt pref still controls the summary's style; we append the JSON contract.
+// Structured analysis of a paper. One model call over the paper text returns
+// the abstract-style summary plus the extra fields the research-wiki note
+// needs; a second, short call over that summary picks the filing tags. The
+// user's prompt pref still controls the summary's style.
 
 import { callBackend } from "./backends";
 import type { Prefs } from "./prefs";
@@ -11,7 +12,7 @@ export interface Analysis {
   method: string;
   limitations: string;
   topics: string[];
-  /** 2-3 filing tags for the wiki page, preferring the vault's existing vocabulary. */
+  /** 2-3 filing tags for the wiki page, preferring the vault's existing vocabulary. Nested tags (`method/survey`) keep their slash. */
   tags: string[];
   /** False when the model ignored the JSON contract and we fell back to raw text. */
   structured: boolean;
@@ -34,40 +35,101 @@ The JSON object has exactly these keys:
 - "key_findings": array of 3-5 strings, each one concrete finding or claim in one sentence
 - "method": string, one or two sentences on the method, data or evidentiary basis
 - "limitations": string, one or two sentences on scope conditions and weaknesses
-- "topics": array of 3-6 short lowercase kebab-case topic slugs, e.g. "ai-procurement", "algorithmic-accountability"
-- "tags": array of 2-3 broad lowercase kebab-case tags for filing the paper, e.g. "ai-governance", "disinformation". Tags are coarser than topics: each should fit many papers in the library.`;
+- "topics": array of 3-6 short lowercase kebab-case topic slugs, e.g. "ai-procurement", "algorithmic-accountability"`;
 }
 
-// The tag vocabulary goes after the paper text, next to the task, because
-// small local models over-apply list items they saw only in the system prompt.
-function jsonTask(vocabulary: string[]): string {
-  const tagRule = vocabulary.length
-    ? `For "tags": the library already uses these tags: ${vocabulary.join(", ")}. ` +
-      `Decide what the paper is about first. Reuse a listed tag only if it accurately describes ` +
-      `this paper's subject; otherwise write a new tag. Never include a tag just because it is listed.\n\n`
-    : `For "tags": the library has no tags yet, so choose broad, reusable ones.\n\n`;
-  return (
-    tagRule +
-    `Now write the JSON object for the paper above, with the keys summary, key_findings, ` +
-    `method, limitations, topics and tags. Output only the JSON object: no code fences, ` +
-    `no text before or after it.`
-  );
-}
+const JSON_TASK =
+  `Now write the JSON object for the paper above, with the keys summary, key_findings, ` +
+  `method, limitations and topics. Output only the JSON object: no code fences, ` +
+  `no text before or after it.`;
 
+/**
+ * @param tagVocabulary the vault's existing tags, or null to skip tagging
+ *   (only the wiki page uses tags).
+ */
 export async function analysePaper(
   prefs: Prefs,
   documentText: string,
   itemTitle: string,
-  tagVocabulary: string[] = []
+  tagVocabulary: string[] | null = null
 ): Promise<Analysis> {
   const raw = await callBackend(prefs, {
     systemPrompt: systemPrompt(prefs.prompt),
     documentText,
     itemTitle,
-    task: jsonTask(tagVocabulary),
+    task: JSON_TASK,
     maxTokens: 1500,
   });
-  return parseAnalysis(raw);
+  const analysis = parseAnalysis(raw);
+  if (tagVocabulary && analysis.structured) {
+    analysis.tags = await tagPaper(prefs, itemTitle, analysis, tagVocabulary);
+  }
+  return analysis;
+}
+
+// Tagging runs as its own short call over the summary, not the paper. Asked
+// inside the main call, with 6k tokens of paper between the vocabulary and the
+// answer, small local models reused listed tags that didn't fit (gemma3:12b put
+// "ai-governance" on a disinformation paper in most runs). Each tag's reason
+// comes before the tag in the JSON, so the model states the fit before it
+// commits to a tag rather than justifying one after the fact.
+async function tagPaper(
+  prefs: Prefs,
+  itemTitle: string,
+  a: Analysis,
+  vocabulary: string[]
+): Promise<string[]> {
+  const existing = vocabulary.length
+    ? `Tags already used in the library: ${vocabulary.join(", ")}`
+    : `The library has no tags yet.`;
+  const userMessage = [
+    `Title: ${itemTitle}`,
+    `Summary: ${a.summary}`,
+    a.keyFindings.length ? `Key findings:\n${a.keyFindings.map((f) => `- ${f}`).join("\n")}` : "",
+    a.topics.length ? `Topics: ${a.topics.join(", ")}` : "",
+    "",
+    existing,
+    "",
+    `Choose 2 or 3 tags for this paper. A tag names a broad subject area that the paper is ` +
+      `substantially about, broad enough to fit many papers. Reuse an existing tag only if this ` +
+      `paper is substantially about that subject, not merely adjacent or loosely related to it. ` +
+      `If no existing tag fits, create a new lowercase kebab-case tag, but if an existing tag is ` +
+      `a close synonym of the one you would create, reuse the existing one. Two accurate tags are ` +
+      `better than three where the third is a stretch.`,
+    "",
+    `Reply with only this JSON object, writing each reason before its tag: ` +
+      `{"tags": [{"reason": "one short sentence on what in the paper makes it substantially ` +
+      `about this subject", "tag": "..."}]}`,
+  ]
+    .filter((line, i, all) => line !== "" || all[i - 1] !== "")
+    .join("\n");
+
+  try {
+    const raw = await callBackend(prefs, {
+      systemPrompt:
+        "You file academic papers in a research library by choosing tags. " +
+        "Reply with a single JSON object and nothing else.",
+      documentText: "",
+      userMessage,
+      maxTokens: 400,
+    });
+    return parseTags(raw);
+  } catch (e: any) {
+    // Tags are a nice-to-have; never lose the summary over them.
+    Zotero.debug(`[PDF Auto-Summariser] Tagging failed: ${e?.message || e}`);
+    return [];
+  }
+}
+
+export function parseTags(raw: string): string[] {
+  const obj = extractJsonObject(raw);
+  const list: unknown[] = Array.isArray(obj?.tags) ? obj.tags : [];
+  const names = list.map((t: any) => (typeof t === "string" ? t : t?.tag));
+  const tags = names
+    .filter((n): n is string => typeof n === "string")
+    .map((n) => n.split("/").map(slugify).filter(Boolean).join("/"))
+    .filter(Boolean);
+  return [...new Set(tags)].slice(0, 3);
 }
 
 export function parseAnalysis(raw: string): Analysis {
@@ -91,7 +153,7 @@ export function parseAnalysis(raw: string): Analysis {
     method: str(obj.method),
     limitations: str(obj.limitations),
     topics: uniqueSlugs(obj.topics, 6),
-    tags: uniqueSlugs(obj.tags, 3),
+    tags: [],
     structured: true,
   };
 }
