@@ -122,8 +122,8 @@ async function tagPaper(
 }
 
 export function parseTags(raw: string): string[] {
-  const obj = extractJsonObject(raw);
-  const list: unknown[] = Array.isArray(obj?.tags) ? obj.tags : [];
+  const obj = findJsonObject(stripReasoning(raw), (o) => Array.isArray(o.tags));
+  const list: unknown[] = obj ? obj.tags : [];
   const names = list.map((t: any) => (typeof t === "string" ? t : t?.tag));
   const tags = names
     .filter((n): n is string => typeof n === "string")
@@ -133,12 +133,18 @@ export function parseTags(raw: string): string[] {
 }
 
 export function parseAnalysis(raw: string): Analysis {
-  const obj = extractJsonObject(raw);
-  if (!obj || typeof obj.summary !== "string" || !obj.summary.trim()) {
-    // Small local models sometimes ignore the contract. Keep the old
-    // behaviour: treat the whole response as the summary.
+  const text = stripReasoning(raw);
+  const obj = findJsonObject(text, (o) => typeof o.summary === "string" && o.summary.trim() !== "");
+  if (!obj) {
+    // Writing a half-formed JSON object or a model's reasoning into the
+    // abstract would be worse than writing nothing, so fail the run.
+    if (looksLikeJsonOrReasoning(raw)) {
+      throw new Error("Model returned malformed JSON (often truncated or mixed with reasoning)");
+    }
+    // Small local models sometimes ignore the contract and just write the
+    // abstract. Keep that as the summary.
     return {
-      summary: raw.trim(),
+      summary: text,
       keyFindings: [],
       method: "",
       limitations: "",
@@ -158,17 +164,57 @@ export function parseAnalysis(raw: string): Analysis {
   };
 }
 
-// Models wrap JSON in fences or add a preamble often enough that a strict
-// JSON.parse on the whole response is not viable. Take the outermost {...}.
-function extractJsonObject(raw: string): any | null {
-  const start = raw.indexOf("{");
-  const end = raw.lastIndexOf("}");
-  if (start === -1 || end <= start) return null;
-  try {
-    return JSON.parse(raw.slice(start, end + 1));
-  } catch {
-    return null;
+// Reasoning models put their thinking in <think> tags, which can contain
+// braces of their own. Drop it, including an unclosed block cut off by the
+// token limit.
+function stripReasoning(raw: string): string {
+  return raw
+    .replace(/<think>[\s\S]*?<\/think>/gi, "")
+    .replace(/<think>[\s\S]*$/i, "")
+    .trim();
+}
+
+function looksLikeJsonOrReasoning(raw: string): boolean {
+  const t = raw.trim();
+  return /^(\{|```|\[)/.test(t) || /<think>/i.test(t) || /"summary"\s*:/.test(t);
+}
+
+// Models wrap JSON in fences, add a preamble or a closing note (which may
+// contain braces), or emit more than one object. Try each balanced {...} in
+// turn and return the first that parses and passes `accept`.
+function findJsonObject(text: string, accept: (o: any) => boolean): any | null {
+  for (let i = text.indexOf("{"); i !== -1; i = text.indexOf("{", i + 1)) {
+    const end = matchingBrace(text, i);
+    if (end === -1) continue;
+    try {
+      const obj = JSON.parse(text.slice(i, end + 1));
+      if (obj && typeof obj === "object" && accept(obj)) return obj;
+    } catch {
+      /* not JSON; try the next brace */
+    }
   }
+  return null;
+}
+
+// Index of the "}" closing the "{" at `start`, skipping braces inside JSON
+// strings; -1 if it never closes (e.g. output truncated at the token limit).
+function matchingBrace(text: string, start: number): number {
+  let depth = 0;
+  let inString = false;
+  for (let i = start; i < text.length; i++) {
+    const c = text[i];
+    if (inString) {
+      if (c === "\\") i++;
+      else if (c === '"') inString = false;
+    } else if (c === '"') {
+      inString = true;
+    } else if (c === "{") {
+      depth++;
+    } else if (c === "}" && --depth === 0) {
+      return i;
+    }
+  }
+  return -1;
 }
 
 function str(v: unknown): string {

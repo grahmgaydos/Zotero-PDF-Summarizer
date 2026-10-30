@@ -52,6 +52,24 @@ async function shutdown() {
   }
 }
 
+// Zotero 7+ calls these for each main window, including one reopened after
+// being closed (on macOS, from the Dock). Without them the menu items vanish.
+async function onMainWindowLoad({ window }) {
+  try {
+    if (typeof Summariser !== "undefined") await Summariser.onMainWindowLoad(window);
+  } catch (e) {
+    log(`onMainWindowLoad error: ${e}`);
+  }
+}
+
+async function onMainWindowUnload({ window }) {
+  try {
+    if (typeof Summariser !== "undefined") Summariser.onMainWindowUnload(window);
+  } catch (e) {
+    log(`onMainWindowUnload error: ${e}`);
+  }
+}
+
 async function uninstall() {
   log("uninstall()");
 }

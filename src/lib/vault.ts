@@ -58,7 +58,44 @@ export interface VaultWriteResult {
   created: boolean;
 }
 
-export async function writeSourceNote(
+// Every page write and log append goes through this chain, one at a time.
+// Each is a read-modify-write (find or claim a filename, merge the page,
+// append to log.md), so two runs interleaving would lose log entries or let
+// two items claim the same filename. This only orders our own writes; other
+// tools writing the vault (Reading Partner, Obsidian) aren't covered.
+let writeChain: Promise<unknown> = Promise.resolve();
+
+function serialised<T>(fn: () => Promise<T>): Promise<T> {
+  const run = writeChain.then(fn, fn);
+  writeChain = run.catch(() => undefined);
+  return run;
+}
+
+export function writeSourceNote(
+  prefs: Prefs,
+  parentItem: any,
+  attachmentItem: any,
+  analysis: Analysis
+): Promise<VaultWriteResult> {
+  return serialised(() => writeSourceNoteNow(prefs, parentItem, attachmentItem, analysis));
+}
+
+// True when the item already has a page whose plugin block holds a summary.
+// The automatic path uses this so a second PDF added to an item (a
+// supplement, say) doesn't regenerate the page from the wrong file.
+export async function hasSummarisedPage(prefs: Prefs, parentItem: any): Promise<boolean> {
+  const { dir } = await sourcesDir(prefs);
+  if (!(await IOUtils.exists(dir))) return false;
+  const meta = readMeta(parentItem, null);
+  const path = await findExisting(dir, meta.citekey, meta.zoteroKey);
+  if (!path) return false;
+  const text = await IOUtils.readUTF8(path);
+  const s = text.indexOf(START);
+  const e = text.indexOf(END);
+  return s !== -1 && e > s && text.slice(s, e).includes("## Summary");
+}
+
+async function writeSourceNoteNow(
   prefs: Prefs,
   parentItem: any,
   attachmentItem: any,
@@ -117,7 +154,7 @@ async function sourcesDir(prefs: Prefs): Promise<{ vault: string; folder: string
 // ---------------------------------------------------------------------------
 // Zotero metadata
 
-function readMeta(item: any, attachment: any): ItemMeta {
+function readMeta(item: any, attachment: any | null): ItemMeta {
   const field = (name: string): string => {
     try {
       return String(item.getField(name) || "").trim();
@@ -155,18 +192,18 @@ function readMeta(item: any, attachment: any): ItemMeta {
     .filter(Boolean);
 
   return {
-    title,
+    title: cleanInline(title),
     authors,
-    shortAuthors: shortAuthorList(surnames),
+    shortAuthors: cleanInline(shortAuthorList(surnames)),
     year,
     itemType: item.itemType || Zotero.ItemTypes.getName(item.itemTypeID) || "",
-    venue,
+    venue: cleanInline(venue),
     doi,
     url: field("url"),
     citekey: citekeyFor(item, extra, surnames[0], year, title),
     zoteroKey: item.key,
     zoteroLink: `zotero://select/${libPath}/items/${item.key}`,
-    pdfLink: `zotero://open-pdf/${libPath}/items/${attachment.key}`,
+    pdfLink: attachment ? `zotero://open-pdf/${libPath}/items/${attachment.key}` : "",
     zoteroTags: (item.getTags?.() ?? []).map((t: any) => t.tag),
     collections,
     added: String(item.dateAdded || "").slice(0, 10),
@@ -196,7 +233,8 @@ function citekeyFor(
     }
   }
   if (!key) key = extraValue(extra, "Citation Key");
-  if (key) return key.replace(/[\\/:*?"<>|]/g, "-");
+  // Filesystem-unsafe characters, plus those that break [[wikilinks]].
+  if (key) return key.replace(/[\\/:*?"<>|[\]#^]/g, "-");
 
   const words = slugify(title)
     .split("-")
@@ -244,24 +282,29 @@ async function freePath(dir: string, citekey: string, zoteroKey: string): Promis
   return PathUtils.join(dir, `${citekey}-${zoteroKey.toLowerCase()}.md`);
 }
 
-// Frontmatter sits at the top of the file; don't read whole pages to scan it.
+// Frontmatter sits at the top of the file, so read 8 KB rather than whole
+// pages. A paper with hundreds of authors can push the frontmatter past that;
+// then read the whole file, or its zotero-key would be missed and the next run
+// would create a duplicate page.
 async function readHead(path: string): Promise<string> {
   try {
     const bytes = await IOUtils.read(path, { maxBytes: 8192 });
-    return new TextDecoder().decode(bytes);
+    const head = new TextDecoder().decode(bytes);
+    if (head.startsWith("---") && !/\r?\n---\r?\n/.test(head.slice(3)) && bytes.length >= 8192) {
+      return await IOUtils.readUTF8(path);
+    }
+    return head;
   } catch {
     return "";
   }
 }
 
+// Read from the frontmatter only: a model-written body could contain a
+// "zotero-key:" line too.
 async function keyOf(path: string): Promise<string | null> {
-  try {
-    const head = await readHead(path);
-    const m = head.match(/^zotero-key:\s*"?([A-Z0-9]+)"?\s*$/m);
-    return m ? m[1] : null;
-  } catch {
-    return null;
-  }
+  const raw = splitFrontmatter(await readHead(path)).blocks.get("zotero-key");
+  const m = raw?.match(/^zotero-key:\s*"?([A-Z0-9]+)"?\s*$/);
+  return m ? m[1] : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -347,19 +390,19 @@ function renderBlock(meta: ItemMeta, a: Analysis, model: string, today: string):
     "",
     "## Summary",
     "",
-    a.summary,
+    cleanModelText(a.summary),
   ];
   if (a.keyFindings.length) {
-    parts.push("", "## Key findings", "", ...a.keyFindings.map((f) => `- ${f}`));
+    parts.push("", "## Key findings", "", ...a.keyFindings.map((f) => `- ${cleanInline(f)}`));
   }
-  if (a.method) parts.push("", "## Method", "", a.method);
-  if (a.limitations) parts.push("", "## Limitations", "", a.limitations);
+  if (a.method) parts.push("", "## Method", "", cleanModelText(a.method));
+  if (a.limitations) parts.push("", "## Limitations", "", cleanModelText(a.limitations));
   parts.push("", "## Citation", "", citation(meta), END);
   return parts.join("\n");
 }
 
 function citation(meta: ItemMeta): string {
-  const authors = meta.authors.length ? meta.authors.join("; ") : "Unknown author";
+  const authors = meta.authors.length ? meta.authors.map(cleanInline).join("; ") : "Unknown author";
   const venue = meta.venue ? ` *${meta.venue}*.` : "";
   const link = meta.doi
     ? ` https://doi.org/${meta.doi}`
@@ -367,6 +410,33 @@ function citation(meta: ItemMeta): string {
       ? ` ${meta.url}`
       : "";
   return `${authors} (${meta.year || "n.d."}). ${meta.title}.${venue}${link}`;
+}
+
+// Model output comes from untrusted PDF text (prompt injection) and goes into
+// pages that Obsidian renders and an agent reads. Neutralise what could fake
+// page structure (a "## My notes" heading the agent would credit to Grahm, or
+// our own markers, which would split the block on the next run), embed remote
+// content (HTML or ![](…) images leak the reader's IP when the page opens), or
+// run code (fenced blocks such as dataviewjs).
+function cleanModelText(s: string): string {
+  return stripMarkers(s)
+    .replace(/<\/?[a-zA-Z][^>]*>/g, "")
+    .replace(/<!--|-->/g, "")
+    .replace(/^[ \t]*(```|~~~).*$/gm, "")
+    .replace(/^[ \t]{0,3}#{1,6}[ \t]+/gm, "")
+    .replace(/!\[/g, "[")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+// For single-line contexts (list items, H1, log entries): also fold newlines,
+// so a title can't start a fake log entry or heading on its own line.
+function cleanInline(s: string): string {
+  return cleanModelText(s).replace(/\s+/g, " ").trim();
+}
+
+function stripMarkers(s: string): string {
+  return s.split(START).join("").split(END).join("");
 }
 
 // ---------------------------------------------------------------------------
@@ -397,7 +467,9 @@ function splitFrontmatter(text: string): { blocks: Map<string, string>; body: st
 
   let current: string | null = null;
   for (const raw of m[1].split(/\r?\n/)) {
-    const k = raw.match(/^([A-Za-z0-9_-]+):/);
+    // Any top-level key, including Obsidian properties with spaces or
+    // accents ("my rating"). Not indented lines, list items or comments.
+    const k = raw.match(/^([^\s#:\-"'][^:]*?):(?:\s|$)/);
     if (k) {
       current = k[1];
       blocks.set(current, raw);
@@ -449,10 +521,13 @@ async function appendLog(
     : `Plugin block on [[${linkTarget}]] regenerated by the Zotero plugin (${model}).`;
   const entry = `\n## [${today}] ${op} | ${meta.shortAuthors} (${meta.year || "n.d."}): ${meta.title}\n${what}\n`;
 
-  let current = "";
-  if (await IOUtils.exists(logPath)) current = await IOUtils.readUTF8(logPath);
-  else current = "# Log — research\n";
-  await IOUtils.writeUTF8(logPath, current.replace(/\s*$/, "\n") + entry);
+  // Append rather than rewrite, so entries other tools add between our read
+  // and write (Reading Partner logs here too) aren't lost.
+  if (await IOUtils.exists(logPath)) {
+    await IOUtils.writeUTF8(logPath, entry, { mode: "append" });
+  } else {
+    await IOUtils.writeUTF8(logPath, `# Log — research\n${entry}`);
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -52,7 +52,35 @@ export async function callBackend(
   if (prefs.backend === "ollama") {
     return callOllama(prefs, input, signal);
   }
-  return callOpenAICompatible(prefs, input, signal);
+  // LM Studio needs no key; only the cloud OpenAI-compatible backend gets one.
+  return callOpenAICompatible(prefs, input, signal, prefs.backend === "openai");
+}
+
+// Local models can take minutes on a long paper, but a hung server shouldn't
+// hold a queue slot forever.
+const REQUEST_TIMEOUT_MS = 10 * 60 * 1000;
+
+async function post(url: string, init: RequestInit, signal?: AbortSignal): Promise<Response> {
+  try {
+    return await fetch(url, { ...init, signal: signal ?? AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+  } catch (e: any) {
+    if (e?.name === "TimeoutError") {
+      throw new Error(`No response from ${new URL(url).host} after ${REQUEST_TIMEOUT_MS / 60000} minutes`);
+    }
+    throw e;
+  }
+}
+
+// The key is a secret for a cloud service. Only send it over https, or to a
+// proxy on this machine, so a leftover key isn't sent in plain text to
+// whatever an endpoint pref points at after switching backends.
+function keySafeFor(endpoint: string): boolean {
+  try {
+    const u = new URL(endpoint);
+    return u.protocol === "https:" || ["localhost", "127.0.0.1", "[::1]"].includes(u.hostname);
+  } catch {
+    return false;
+  }
 }
 
 // Used by the prefs pane's Test Connection button. Sends a tiny ping.
@@ -68,7 +96,8 @@ export async function testConnection(prefs: Prefs): Promise<boolean> {
 async function callOpenAICompatible(
   prefs: Prefs,
   input: SummariseInput,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  sendKey = false
 ): Promise<string> {
   const body: any = {
     model: prefs.model,
@@ -84,16 +113,18 @@ async function callOpenAICompatible(
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
-  if (prefs.apiKey) {
+  if (sendKey && prefs.apiKey) {
+    if (!keySafeFor(prefs.endpoint)) {
+      throw new Error("Refusing to send the API key over plain http; use an https endpoint");
+    }
     headers["Authorization"] = `Bearer ${prefs.apiKey}`;
   }
 
-  const res = await fetch(prefs.endpoint, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(body),
-    signal,
-  });
+  const res = await post(
+    prefs.endpoint,
+    { method: "POST", headers, body: JSON.stringify(body) },
+    signal
+  );
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -138,15 +169,17 @@ async function callOllama(
       { role: "user", content: user },
     ],
     stream: false,
+    // Reasoning models (qwen3 and similar) otherwise think first: the thinking
+    // spends num_predict and can leave the answer empty or cut off mid-JSON.
+    think: false,
     options: { temperature: 0.2, num_predict: maxTokens, num_ctx: numCtx },
   };
 
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    signal,
-  });
+  const res = await post(
+    url,
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
+    signal
+  );
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -211,8 +244,11 @@ async function callAnthropic(
     throw new Error("Anthropic backend requires an API key");
   }
 
-  // Default endpoint if user left the OpenAI-shaped default in place.
-  const url = prefs.endpoint.includes("api.anthropic.com")
+  // Use the configured endpoint only if it really is Anthropic over https;
+  // anything else (the OpenAI-shaped default, a typo, a lookalike host such
+  // as api.anthropic.com.example.net) gets the official URL, so the key only
+  // ever goes to Anthropic.
+  const url = isAnthropicUrl(prefs.endpoint)
     ? prefs.endpoint
     : "https://api.anthropic.com/v1/messages";
 
@@ -223,16 +259,19 @@ async function callAnthropic(
     messages: [{ role: "user", content: userContent(input) }],
   };
 
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": prefs.apiKey,
-      "anthropic-version": "2023-06-01",
+  const res = await post(
+    url,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": prefs.apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify(body),
     },
-    body: JSON.stringify(body),
-    signal,
-  });
+    signal
+  );
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -251,6 +290,15 @@ async function callAnthropic(
     .trim();
   if (!text) throw new Error("Empty response from Anthropic");
   return text;
+}
+
+function isAnthropicUrl(endpoint: string): boolean {
+  try {
+    const u = new URL(endpoint);
+    return u.protocol === "https:" && u.hostname === "api.anthropic.com";
+  } catch {
+    return false;
+  }
 }
 
 function log(msg: string): void {

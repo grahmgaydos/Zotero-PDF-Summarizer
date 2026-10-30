@@ -8,6 +8,9 @@
     const btn = document.getElementById("pas-test-btn");
     const result = document.getElementById("pas-test-result");
     if (!btn || btn.dataset.wired === "1") return;
+    // prefs.xhtml wires the button with an inline onclick, which runs even
+    // when this script doesn't. Adding a listener too sent two test requests.
+    if (btn.hasAttribute("onclick")) return;
     btn.dataset.wired = "1";
 
     btn.addEventListener("click", async () => {

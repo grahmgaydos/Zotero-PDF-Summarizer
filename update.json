@@ -3,6 +3,17 @@
     "pdf-auto-summariser@grahmgaydos.dev": {
       "updates": [
         {
+          "version": "1.0.1",
+          "update_link": "https://github.com/grahmgaydos/Zotero-PDF-Summarizer/releases/download/v1.0.1/pdf-auto-summariser-1.0.1.xpi",
+          "update_hash": "sha256:7100f9eeb5d2a9f6e0c354e32c7da9fb6ad0acb0aa099c3fc1a411278e93bdd1",
+          "applications": {
+            "zotero": {
+              "strict_min_version": "6.999",
+              "strict_max_version": "11.*"
+            }
+          }
+        },
+        {
           "version": "1.0.0",
           "update_link": "https://github.com/grahmgaydos/Zotero-PDF-Summarizer/releases/download/v1.0.0/pdf-auto-summariser-1.0.0.xpi",
           "update_hash": "sha256:82e58528976b8214c112a9719d729f20bbac3e5b95a84c3ec9dda5228ecf7ca8",

@@ -77,6 +77,7 @@ npm install
 npm run build        # one-shot bundle
 npm run watch        # rebuild on changes
 npm run typecheck    # tsc --noEmit
+npm test             # offline tests: queue, parsing, backends, vault writer
 npm run package      # produces dist/pdf-auto-summariser-<version>.xpi
 ```
 
@@ -143,6 +144,10 @@ LM Studio, OpenAI, and OpenRouter all speak the OpenAI Chat Completions schema, 
 Rather than ship a PDF parser, the plugin reads `Zotero.Fulltext.getItemContent(attachmentID)`. Zotero already indexes PDFs for its own search; we piggyback on that. For freshly added items the indexer may not have finished, so the extraction step polls for up to `indexWaitSeconds` (default 8) before giving up.
 
 ## Caveats
+
+- **Automatic runs** only fire for PDFs added to your own library on this computer. Items arriving by sync (from another device or a group library) are skipped. A second PDF added to an item that already has a wiki page doesn't regenerate the page; use *Add to research wiki* for that.
+- **Untrusted text**: summaries come from a model reading the PDF, which may contain prompt injection. The plugin strips headings, HTML, images and code blocks from model text before writing wiki pages, and the vault's `CLAUDE.md` tells agents to treat that text as data.
+- **API keys** are only sent by the OpenAI/OpenRouter and Anthropic backends, only over https (or to localhost), and the Anthropic key only to `api.anthropic.com`.
 
 - **Abstract clobbering**: the default `Ask via toast` mode prompts before overwriting an existing abstract. If you set it to `Always overwrite`, do so with intent — a Crossref-supplied abstract is generally more authoritative than an LLM paraphrase.
 - **Bulk imports**: the queue defaults to concurrency 1 so a 200-PDF drag doesn't fan out to 200 simultaneous model calls. Raise it in prefs if you have headroom.

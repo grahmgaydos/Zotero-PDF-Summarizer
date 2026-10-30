@@ -80,6 +80,16 @@ export const Summariser = {
     await registerMenu();
   },
 
+  // Zotero calls these (via bootstrap.js) whenever a main window opens or
+  // closes, including the first window if it opens after startup.
+  async onMainWindowLoad(win: any) {
+    await registerMenu(win);
+  },
+
+  onMainWindowUnload(win: any) {
+    unregisterMenu(win);
+  },
+
   async shutdown() {
     Zotero.debug("[PDF Auto-Summariser] index.ts shutdown");
     unregisterNotifier();

@@ -2,7 +2,7 @@
 // 'add' on attachments and filter for PDFs that just landed under a parent.
 
 import { getPrefs } from "./prefs";
-import { summariseAttachment } from "./summarise";
+import { summariseNewAttachments } from "./summarise";
 
 let observerID: string | null = null;
 
@@ -10,10 +10,10 @@ export function registerNotifier(): void {
   if (observerID) return;
   observerID = Zotero.Notifier.registerObserver(
     {
-      notify: async (event: string, type: string, ids: number[]) => {
+      notify: async (event: string, type: string, ids: number[], extraData: any) => {
         if (event !== "add" || type !== "item") return;
         if (!getPrefs().autoOnAdd) return;
-        await handleAdds(ids);
+        await handleAdds(ids, extraData || {});
       },
     },
     ["item"],
@@ -33,16 +33,28 @@ export function unregisterNotifier(): void {
   }
 }
 
-async function handleAdds(ids: number[]): Promise<void> {
+async function handleAdds(ids: number[], extraData: Record<number, any>): Promise<void> {
+  const attachments: any[] = [];
+  const parents = new Set<number>();
+
   for (const id of ids) {
     try {
+      // Zotero sync also fires "add" for items it downloads (marked with
+      // skipRenameFile). Those were added on another device or by someone
+      // else; their PDFs often aren't downloaded yet either.
+      if (extraData[id]?.skipRenameFile) continue;
+
       const item = await Zotero.Items.getAsync(id);
       if (!item) continue;
       if (!item.isAttachment()) continue;
 
+      // Only the user's own library. In a group, a collaborator's upload
+      // would otherwise be sent to this user's backend (and bill them), and
+      // the summary written back to everyone's copy.
+      if (item.libraryID !== Zotero.Libraries.userLibraryID) continue;
+
       // PDF attachments only. Linked URLs and snapshots skip.
-      const contentType = item.attachmentContentType;
-      if (contentType !== "application/pdf") continue;
+      if (item.attachmentContentType !== "application/pdf") continue;
 
       // Skip top-level orphan PDFs — we need a parent item to write the
       // abstract back to. (Zotero 7 creates them on standalone drag-in but
@@ -52,14 +64,16 @@ async function handleAdds(ids: number[]): Promise<void> {
         continue;
       }
 
-      // Fire-and-forget. Errors are surfaced via the progress window.
-      summariseAttachment(item).catch((e) => {
-        log(`summariseAttachment failed for ${id}: ${e?.message || e}`);
-      });
+      // One run per paper, even if it arrived with several PDFs.
+      if (parents.has(item.parentItemID)) continue;
+      parents.add(item.parentItemID);
+      attachments.push(item);
     } catch (e: any) {
       log(`handleAdds error for ${id}: ${e?.message || e}`);
     }
   }
+
+  if (attachments.length) await summariseNewAttachments(attachments);
 }
 
 function log(msg: string): void {

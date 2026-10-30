@@ -17,9 +17,12 @@ export class Queue {
 
   async run<T>(job: Job<T>): Promise<T> {
     if (this.active >= this.concurrency) {
+      // drain() hands this job the slot and counts it as active before waking
+      // us, so other waiters can't slip in between.
       await new Promise<void>((resolve) => this.waiting.push(resolve));
+    } else {
+      this.active++;
     }
-    this.active++;
     try {
       return await job();
     } finally {
@@ -30,8 +33,9 @@ export class Queue {
 
   private drain(): void {
     while (this.active < this.concurrency && this.waiting.length > 0) {
-      const next = this.waiting.shift();
-      if (next) next();
+      const next = this.waiting.shift()!;
+      this.active++;
+      next();
     }
   }
 }

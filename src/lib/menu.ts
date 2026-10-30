@@ -4,8 +4,6 @@
 import type { SummariseOptions } from "./summarise";
 import { summariseAttachment } from "./summarise";
 
-let registered = false;
-
 const MENU_ITEMS: { id: string; label: string; opts: SummariseOptions }[] = [
   {
     id: "pdf-auto-summariser-context-menu",
@@ -20,12 +18,15 @@ const MENU_ITEMS: { id: string; label: string; opts: SummariseOptions }[] = [
   },
 ];
 
-export async function registerMenu(): Promise<void> {
-  if (registered) return;
+// Adds the menu items to one main window, or to the current main window when
+// none is given. Zotero calls this again (via onMainWindowLoad) whenever a
+// main window opens, e.g. reopening it from the Dock on macOS, so it must be
+// idempotent per window.
+export async function registerMenu(win?: any): Promise<void> {
   try {
-    const win = Zotero.getMainWindow();
+    win = win ?? Zotero.getMainWindow();
     if (!win) {
-      log("No main window yet; deferring menu registration");
+      log("No main window yet; menu will be added when it opens");
       return;
     }
 
@@ -37,17 +38,13 @@ export async function registerMenu(): Promise<void> {
     }
 
     for (const { id, label, opts } of MENU_ITEMS) {
-      // Remove any stale entry from a previous startup.
-      doc.getElementById(id)?.remove();
-
+      if (doc.getElementById(id)) continue;
       const menuitem = doc.createXULElement("menuitem");
       menuitem.setAttribute("id", id);
       menuitem.setAttribute("label", label);
       menuitem.addEventListener("command", () => runOnSelection(opts));
       popup.appendChild(menuitem);
     }
-
-    registered = true;
     log("Context menu registered");
   } catch (e: any) {
     log(`registerMenu error: ${e?.message || e}`);
@@ -82,12 +79,14 @@ async function findPdf(item: any): Promise<any | null> {
   return null;
 }
 
-export function unregisterMenu(): void {
+// Removes the menu items from one window, or from every main window.
+export function unregisterMenu(win?: any): void {
   try {
-    const win = Zotero.getMainWindow();
-    if (!win) return;
-    for (const { id } of MENU_ITEMS) win.document.getElementById(id)?.remove();
-    registered = false;
+    const wins = win ? [win] : (Zotero.getMainWindows?.() ?? [Zotero.getMainWindow()]);
+    for (const w of wins) {
+      if (!w) continue;
+      for (const { id } of MENU_ITEMS) w.document.getElementById(id)?.remove();
+    }
   } catch (e: any) {
     log(`unregisterMenu error: ${e?.message || e}`);
   }

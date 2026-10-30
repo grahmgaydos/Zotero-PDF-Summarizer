@@ -1,6 +1,6 @@
 {
   "name": "zotero-pdf-summarizer",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Zotero 7 plugin that auto-summarises newly added PDFs into the abstract field using local (Ollama/LM Studio) or cloud (Anthropic/OpenAI) models.",
   "private": true,
   "type": "module",
@@ -8,7 +8,8 @@
     "build": "node scripts/build.mjs",
     "package": "node scripts/build.mjs && node scripts/package.mjs",
     "watch": "node scripts/build.mjs --watch",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node scripts/test.mjs"
   },
   "devDependencies": {
     "esbuild": "^0.21.0",

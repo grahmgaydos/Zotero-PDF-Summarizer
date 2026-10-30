@@ -23,6 +23,22 @@ if (manifest.version !== pkg.version) {
   process.exit(1);
 }
 
+// A version already in update.json may be installed somewhere: installs only
+// update to a *higher* version, and a rebuilt file wouldn't match the
+// published hash. Bump the version instead. --force rebuilds an unreleased one.
+const updatePath = resolve(ROOT, "update.json");
+if (existsSync(updatePath) && !process.argv.includes("--force")) {
+  const listed = Object.values(JSON.parse(readFileSync(updatePath, "utf8")).addons)
+    .flatMap((a) => a.updates.map((u) => u.version));
+  if (listed.includes(pkg.version)) {
+    console.error(
+      `${pkg.version} is already in update.json. Bump the version in package.json and ` +
+        `addon/manifest.json, or pass --force if that version was never published.`
+    );
+    process.exit(1);
+  }
+}
+
 mkdirSync(DIST, { recursive: true });
 // zip adds to an existing archive rather than replacing it.
 if (existsSync(OUT)) rmSync(OUT);

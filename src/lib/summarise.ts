@@ -7,7 +7,7 @@ import { getPdfText } from "./pdf";
 import type { Prefs } from "./prefs";
 import { getPrefs } from "./prefs";
 import { Queue } from "./queue";
-import { readTagVocabulary, writeSourceNote } from "./vault";
+import { hasSummarisedPage, readTagVocabulary, writeSourceNote } from "./vault";
 
 const queue = new Queue(1);
 
@@ -59,13 +59,64 @@ export async function summariseAttachment(
     const decision = decide(prefs, existing, opts);
     if (decision === "proceed") targets.abstract = true;
     if (decision === "ask") {
-      targets.abstract = await confirmReplace(parentItem.getField("title"));
+      targets.abstract = await confirmReplace([parentItem.getField("title")]);
     }
   }
 
   if (!targets.abstract && !targets.vault) return;
 
   await queue.run(() => runSummarise(attachmentItem, parentItem, prefs, targets));
+}
+
+// Parents with a run queued or in progress from the automatic path, so two
+// PDFs landing on one item (or a repeated notifier event) run it only once.
+const inFlight = new Set<number>();
+
+/**
+ * The automatic path: PDFs that were just added. Takes the whole batch from
+ * one notifier event so that, in "ask" mode, a bulk import of papers that
+ * already have abstracts gets one dialog rather than one per paper.
+ */
+export async function summariseNewAttachments(attachments: any[]): Promise<void> {
+  const prefs = getPrefs();
+  const jobs: { attachment: any; parent: any; targets: Targets }[] = [];
+  const toAsk: number[] = [];
+
+  for (const attachment of attachments) {
+    const parent = await getParentItem(attachment);
+    if (!parent || inFlight.has(parent.id)) continue;
+
+    const existing = (parent.getField("abstractNote") || "").trim();
+    const abstract = !existing || prefs.onExistingAbstract === "overwrite";
+    // Don't rebuild a page that already has a summary: a second PDF on the
+    // item is usually a supplement, not the paper. The right-click
+    // "Add to research wiki" still regenerates on request.
+    let vault = prefs.vaultEnabled;
+    if (vault) {
+      try {
+        vault = !(await hasSummarisedPage(prefs, parent));
+      } catch {
+        // Vault misconfigured: keep the target so the run reports the error.
+      }
+    }
+
+    if (existing && prefs.onExistingAbstract === "ask") toAsk.push(jobs.length);
+    jobs.push({ attachment, parent, targets: { abstract, vault } });
+  }
+
+  if (toAsk.length) {
+    const replace = await confirmReplace(toAsk.map((i) => jobs[i].parent.getField("title")));
+    for (const i of toAsk) jobs[i].targets.abstract = replace;
+  }
+
+  for (const { attachment, parent, targets } of jobs) {
+    if (!targets.abstract && !targets.vault) continue;
+    inFlight.add(parent.id);
+    queue
+      .run(() => runSummarise(attachment, parent, prefs, targets))
+      .catch((e) => log(`Auto run failed for ${parent.id}: ${e?.message || e}`))
+      .finally(() => inFlight.delete(parent.id));
+  }
 }
 
 function decide(prefs: Prefs, existing: string, opts: SummariseOptions): Decision {
@@ -146,7 +197,7 @@ async function getParentItem(attachmentItem: any): Promise<any | null> {
   }
 }
 
-function confirmReplace(title: string): Promise<boolean> {
+function confirmReplace(titles: string[]): Promise<boolean> {
   // Use Zotero's prompt service. Returns true if user clicked Replace.
   return new Promise((resolve) => {
     try {
@@ -160,7 +211,7 @@ function confirmReplace(title: string): Promise<boolean> {
       const result = ps.confirmEx(
         win,
         "PDF Auto-Summariser",
-        `Replace existing abstract for "${truncate(title, 80)}"?`,
+        confirmText(titles),
         buttonFlags,
         "Replace",
         "Keep existing",
@@ -174,6 +225,15 @@ function confirmReplace(title: string): Promise<boolean> {
       resolve(false);
     }
   });
+}
+
+function confirmText(titles: string[]): string {
+  if (titles.length === 1) {
+    return `Replace existing abstract for "${truncate(titles[0], 80)}"?`;
+  }
+  const shown = titles.slice(0, 5).map((t) => `• ${truncate(t, 70)}`);
+  if (titles.length > 5) shown.push(`…and ${titles.length - 5} more`);
+  return `${titles.length} new papers already have an abstract:\n\n${shown.join("\n")}\n\nReplace them with AI summaries?`;
 }
 
 interface ProgressHandle {
